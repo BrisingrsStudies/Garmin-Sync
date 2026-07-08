@@ -1,0 +1,42 @@
+name: Garmin Sync
+
+on:
+  schedule:
+    # Täglich 04:23 UTC (≈ 06:23 deutscher Sommerzeit) — nach der Schlafauswertung
+    - cron: "23 4 * * *"
+  workflow_dispatch: {}   # manueller Start über den Actions-Tab
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install garminconnect
+
+      - name: Garmin-Daten abrufen
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          DAYS: "35"
+        run: python fetch_garmin.py
+
+      - name: CSV committen
+        run: |
+          git config user.name "garmin-sync-bot"
+          git config user.email "actions@github.com"
+          git add data/garmin.csv
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen."
+          else
+            git commit -m "Garmin-Sync $(date -u +%F)"
+            git push
+          fi
