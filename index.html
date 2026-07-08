@@ -71,6 +71,21 @@ h1{margin:2px 0 0;font-family:var(--num);font-size:26px;font-weight:600}
 .avg b{font-family:var(--num);font-size:15px}
 footer{text-align:center;font-size:11px;color:var(--faint);margin-top:20px;padding:0 16px}
 .empty{font-size:13px;color:var(--faint)}
+.calnav{display:flex;align-items:center;gap:10px}
+.calnav .chip{padding:2px 11px;font-size:15px;line-height:1.4}
+#calMonthLabel{font-family:var(--num);font-size:16px;font-weight:600;min-width:110px;text-align:center}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+#calHead{margin-bottom:6px}
+#calHead span{font-size:10px;color:var(--faint);text-transform:uppercase;text-align:center;letter-spacing:.06em}
+.calcell{aspect-ratio:1;border:none;border-radius:10px;background:var(--cardsoft);color:var(--faint);
+  font-family:var(--num);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;position:relative}
+.calcell.has{color:var(--text)}
+.calcell.sel{outline:2px solid var(--text)}
+.calcell.today::after{content:"";position:absolute;bottom:4px;width:4px;height:4px;border-radius:2px;background:var(--text)}
+.calcell:disabled{opacity:.28;cursor:default}
+.needchip{padding:3px 9px;font-size:11px}
+.needchip.on{color:var(--bg);border-color:transparent;font-weight:600;background:var(--violet)}
+#needPick{display:flex;gap:4px;align-items:center}
 svg circle.prog{transition:stroke-dashoffset .9s cubic-bezier(.4,0,.2,1),stroke .4s}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -118,6 +133,36 @@ svg circle.prog{transition:stroke-dashoffset .9s cubic-bezier(.4,0,.2,1),stroke 
   </section>
 
   <section class="card">
+    <div class="cardhead"><h3>Schlafanalyse · 21 Tage</h3>
+      <span class="avg" id="needPick">Bedarf:
+        <button class="chip needchip" data-n="7">7h</button>
+        <button class="chip needchip" data-n="7.5">7,5h</button>
+        <button class="chip needchip on" data-n="8">8h</button>
+        <button class="chip needchip" data-n="8.5">8,5h</button>
+      </span>
+    </div>
+    <div class="chartbox" style="height:170px"><canvas id="stagesChart"></canvas></div>
+    <div class="statrow" style="margin-top:16px" id="sleepKpis"></div>
+    <div id="consistencyBlock" style="margin-top:18px">
+      <h3 style="margin-bottom:10px">Konsistenz · Zubettgeh- &amp; Aufwachzeiten</h3>
+      <div id="consistencyBody"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead">
+      <h3>Kalender</h3>
+      <div class="calnav">
+        <button class="chip" id="calPrev">‹</button>
+        <span id="calMonthLabel"></span>
+        <button class="chip" id="calNext">›</button>
+      </div>
+    </div>
+    <div class="calgrid" id="calHead"></div>
+    <div class="calgrid" id="calBody"></div>
+  </section>
+
+  <section class="card">
     <div class="cardhead"><h3 id="trendTitle">Trend</h3><span class="avg" id="trendAvg"></span></div>
     <div class="chips" id="trendChips"></div>
     <div class="chartbox"><canvas id="trendChart"></canvas></div>
@@ -153,8 +198,12 @@ function parseDate(v){const s=String(v).trim();
   m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);if(m)return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
   const d=new Date(s);return isNaN(d)?null:d.toISOString().slice(0,10)}
 
+function timeStr(v){const m=String(v??"").trim().match(/^(\d{1,2}):(\d{2})/);return m?`${m[1].padStart(2,"0")}:${m[2]}`:null}
+
 const COLMAP=[
   {key:"date",rx:/^(datum|date|kalendertag|calendar date)$/i,fn:parseDate},
+  {key:"bedTime",rx:/^schlafbeginn/i,fn:timeStr},
+  {key:"wakeTime",rx:/^schlafende/i,fn:timeStr},
   {key:"steps",rx:/(schritte|steps)/i,fn:num},
   {key:"calories",rx:/(kalorien|calories)/i,fn:num},
   {key:"rhr",rx:/(ruheherzfrequenz|ruhe-hf|resting heart rate|restinghr)/i,fn:num},
@@ -323,12 +372,118 @@ function renderTrend(){
       scales:{x:{ticks:{color:col("--faint"),font:{size:10},maxTicksLimit:6},grid:{display:false},border:{display:false}},
         y:{ticks:{color:col("--faint"),font:{size:10}},grid:{color:col("--line")},border:{display:false}}}}})}
 
+/* ── Schlafanalyse ─────────────────────────────────────────────── */
+let sleepNeed=8,stagesChart=null,consChart=null;
+document.querySelectorAll(".needchip").forEach(b=>b.addEventListener("click",()=>{
+  sleepNeed=parseFloat(b.dataset.n);
+  document.querySelectorAll(".needchip").forEach(x=>{x.classList.toggle("on",x===b);
+    x.style.background=x===b?col("--violet"):""});
+  renderSleepAnalysis()}));
+
+function toMin(t,evening){const[h,m]=t.split(":").map(Number);let v=h*60+m;
+  if(evening&&h<12)v+=1440;      // Einschlafen nach Mitternacht → Folgetag
+  if(!evening)v+=1440;            // Aufwachen ist immer am Folgetag
+  return v}
+const fmtMin=v=>`${String(Math.floor((v%1440)/60)).padStart(2,"0")}:${String(v%60).padStart(2,"0")}`;
+
+function renderSleepAnalysis(){
+  const win=days.slice(-21).filter(d=>d.sleepH!=null);
+  /* 1) Gestapelte Phasen */
+  if(stagesChart)stagesChart.destroy();
+  const withStages=days.slice(-21);
+  const sc={tief:"#3D6BFF",rem:col("--violet"),leicht:"#6E7FA8",wach:col("--faint")};
+  stagesChart=new Chart(document.getElementById("stagesChart"),{type:"bar",
+    data:{labels:withStages.map(d=>d.date.slice(8)),
+      datasets:["tief","rem","leicht","wach"].map(s=>({label:s[0].toUpperCase()+s.slice(1),
+        data:withStages.map(d=>d.stages?d.stages[s]:null),backgroundColor:sc[s],
+        borderRadius:2,stack:"s"}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:col("--dim"),boxWidth:10,font:{size:10}}},
+        tooltip:{backgroundColor:col("--cardsoft"),borderColor:col("--line"),borderWidth:1,
+          callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y??"–"} h`}}},
+      scales:{x:{stacked:true,ticks:{color:col("--faint"),font:{size:9},maxTicksLimit:11},grid:{display:false},border:{display:false}},
+        y:{stacked:true,ticks:{color:col("--faint"),font:{size:10},callback:v=>v+"h"},grid:{color:col("--line")},border:{display:false}}}}});
+  /* 2) KPIs */
+  const withW=win.filter(d=>d.stages);
+  const eff=withW.length?withW.reduce((a,d)=>a+d.sleepH/(d.sleepH+(d.stages.wach||0)),0)/withW.length*100:null;
+  const deepP=withW.length?withW.reduce((a,d)=>a+(d.stages.tief||0)/d.sleepH,0)/withW.length*100:null;
+  const remP=withW.length?withW.reduce((a,d)=>a+(d.stages.rem||0)/d.sleepH,0)/withW.length*100:null;
+  const debt=win.slice(-14).reduce((a,d)=>a+Math.max(0,sleepNeed-d.sleepH),0);
+  const kpi=(v,u,l,c,hint)=>`<div class="stat"><div class="v" style="color:${c}">${v}<span class="u">${u}</span></div><div class="l">${l}${hint?` · ${hint}`:""}</div></div>`;
+  document.getElementById("sleepKpis").innerHTML=
+    kpi(eff!=null?Math.round(eff):"–","%","Ø Effizienz",col("--green"),"Ziel ≥85")+
+    kpi(deepP!=null?Math.round(deepP):"–","%","Ø Tiefschlaf",sc.tief,"Norm 13–23")+
+    kpi(remP!=null?Math.round(remP):"–","%","Ø REM",sc.rem,"Norm 20–25")+
+    kpi(debt.toFixed(1).replace(".",","),"h","Schlafschuld 14T",debt>3?col("--red"):debt>1?col("--yellow"):col("--green"),`Bedarf ${String(sleepNeed).replace(".",",")}h`);
+  /* 3) Konsistenz */
+  const consBody=document.getElementById("consistencyBody");
+  const withTimes=days.slice(-21).filter(d=>d.bedTime&&d.wakeTime);
+  if(consChart){consChart.destroy();consChart=null}
+  if(withTimes.length<2){
+    consBody.innerHTML=`<div class="empty">Zubettgeh-/Aufwachzeiten erscheinen hier nach dem nächsten Sync mit dem aktualisierten Script.</div>`;
+  }else{
+    consBody.innerHTML=`<div class="chartbox" style="height:170px"><canvas id="consChart"></canvas></div><div class="empty" id="consVerdict" style="margin-top:8px"></div>`;
+    const bars=withTimes.map(d=>[toMin(d.bedTime,true),toMin(d.wakeTime,false)]);
+    consChart=new Chart(document.getElementById("consChart"),{type:"bar",
+      data:{labels:withTimes.map(d=>d.date.slice(8)),
+        datasets:[{data:bars,backgroundColor:col("--violet")+"99",borderRadius:6,barPercentage:.6}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          tooltip:{backgroundColor:col("--cardsoft"),borderColor:col("--line"),borderWidth:1,
+            callbacks:{label:c=>` ${fmtMin(c.raw[0])} – ${fmtMin(c.raw[1])} Uhr`}}},
+        scales:{x:{ticks:{color:col("--faint"),font:{size:9},maxTicksLimit:11},grid:{display:false},border:{display:false}},
+          y:{reverse:true,min:Math.min(...bars.map(b=>b[0]))-30,max:Math.max(...bars.map(b=>b[1]))+30,
+            ticks:{color:col("--faint"),font:{size:10},stepSize:120,callback:v=>fmtMin(Math.round(v))},
+            grid:{color:col("--line")},border:{display:false}}}}});
+    const bedMins=bars.map(b=>b[0]),mean=bedMins.reduce((a,b)=>a+b,0)/bedMins.length;
+    const sd=Math.sqrt(bedMins.reduce((a,b)=>a+(b-mean)**2,0)/bedMins.length);
+    const verdict=sd<=30?["sehr konstant",col("--green")]:sd<=60?["ganz okay",col("--yellow")]:["unregelmäßig",col("--red")];
+    document.getElementById("consVerdict").innerHTML=
+      `Zubettgehzeit schwankt im Schnitt um <b style="color:${verdict[1]}">±${Math.round(sd)} Min</b> (${verdict[0]}). Je konstanter, desto besser für deinen zirkadianen Rhythmus.`}}
+
+/* ── Kalender ──────────────────────────────────────────────────── */
+let calMonth=null; // Date, erster Tag des angezeigten Monats
+const dayMap=()=>new Map(days.map(d=>[d.date,d]));
+
+function renderCalendar(){
+  if(!calMonth)calMonth=new Date(days[selIdx].date+"T12:00");
+  calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth(),1,12);
+  const map=dayMap();
+  const todayStr=new Date().toISOString().slice(0,10);
+  document.getElementById("calMonthLabel").textContent=
+    calMonth.toLocaleDateString("de-DE",{month:"long",year:"numeric"});
+  document.getElementById("calHead").innerHTML=
+    ["Mo","Di","Mi","Do","Fr","Sa","So"].map(w=>`<span>${w}</span>`).join("");
+  const body=document.getElementById("calBody");body.innerHTML="";
+  const first=new Date(calMonth),lead=(first.getDay()+6)%7; // Mo=0
+  const daysInMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()+1,0).getDate();
+  for(let i=0;i<lead;i++)body.appendChild(document.createElement("span"));
+  for(let n=1;n<=daysInMonth;n++){
+    const iso=`${calMonth.getFullYear()}-${String(calMonth.getMonth()+1).padStart(2,"0")}-${String(n).padStart(2,"0")}`;
+    const d=map.get(iso);
+    const b=document.createElement("button");
+    b.className="calcell"+(d?" has":"")+(iso===days[selIdx].date?" sel":"")+(iso===todayStr?" today":"");
+    b.textContent=n;
+    if(d&&d.readiness!=null){
+      const c=readyColor(d.readiness);
+      b.style.background=c+"2E";b.style.color=c;
+      b.title=`Bereitschaft ${d.readiness}`;
+    }
+    if(d){b.addEventListener("click",()=>{selIdx=days.indexOf(d);renderAll()})}
+    else b.disabled=true;
+    body.appendChild(b)}}
+
+document.getElementById("calPrev").addEventListener("click",()=>{
+  calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()-1,1,12);renderCalendar()});
+document.getElementById("calNext").addEventListener("click",()=>{
+  calMonth=new Date(calMonth.getFullYear(),calMonth.getMonth()+1,1,12);renderCalendar()});
+
 function renderAll(){
   if(!days.length)return;
   const d=days[selIdx];
   document.getElementById("dateTitle").textContent=
     new Date(d.date+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"});
-  renderWeek();renderHero();renderSleep();renderStats();renderTrend()}
+  renderWeek();renderHero();renderSleep();renderStats();renderSleepAnalysis();renderCalendar();renderTrend()}
 
 loadCsv();
 </script>
