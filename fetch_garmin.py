@@ -25,6 +25,7 @@ OUT = Path("data/garmin.csv")
 FIELDS = [
     "Datum", "Schritte", "Kalorien", "Ruheherzfrequenz", "HRV",
     "Schlafwert", "Schlafdauer", "Tiefschlaf", "REM", "Leichtschlaf", "Wach",
+    "Schlafbeginn", "Schlafende",
     "Trainingsbereitschaft", "Body Battery Max", "Body Battery Min",
     "Trainingsbelastung", "VO2max",
 ]
@@ -59,6 +60,15 @@ def fetch_day(api: Garmin, d: str) -> dict:
     row["Wach"] = h(sleep.get("awakeSleepSeconds"))
     score = ((sleep.get("sleepScores") or {}).get("overall") or {}).get("value")
     row["Schlafwert"] = score
+
+    def hhmm(ms):
+        if not ms:
+            return None
+        from datetime import datetime
+        return datetime.utcfromtimestamp(ms / 1000).strftime("%H:%M")
+
+    row["Schlafbeginn"] = hhmm(sleep.get("sleepStartTimestampLocal"))
+    row["Schlafende"] = hhmm(sleep.get("sleepEndTimestampLocal"))
 
     hrv = (safe(api.get_hrv_data, d) or {}).get("hrvSummary") or {}
     row["HRV"] = hrv.get("lastNightAvg")
@@ -106,19 +116,29 @@ def main() -> int:
     api = Garmin(email, password)
     api.login()
 
+    # Bestehende Historie einlesen, damit alte Tage erhalten bleiben
+    history: dict[str, dict] = {}
+    if OUT.exists():
+        with OUT.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row.get("Datum"):
+                    history[row["Datum"]] = row
+        print(f"{len(history)} Tage Historie geladen.")
+
     today = date.today()
-    rows = []
     for i in range(DAYS, -1, -1):
         d = (today - timedelta(days=i)).isoformat()
         print(f"→ {d}")
-        rows.append(fetch_day(api, d))
+        history[d] = fetch_day(api, d)  # neue Abrufe überschreiben alte Einträge desselben Tages
+
+    rows = [history[k] for k in sorted(history)]
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
         for row in rows:
-            writer.writerow({k: ("" if row.get(k) is None else row[k]) for k in FIELDS})
+            writer.writerow({k: ("" if row.get(k) in (None, "") else row[k]) for k in FIELDS})
 
     print(f"✓ {len(rows)} Tage nach {OUT} geschrieben.")
     return 0
