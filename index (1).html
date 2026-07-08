@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0E13">
+<title>Garmin Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0B0E13; --card:#141922; --cardsoft:#1A2130; --line:#232B3A;
+  --text:#EAF0F7; --dim:#8B96A8; --faint:#5A6478;
+  --green:#2FE6A7; --yellow:#FFD75E; --red:#FF5A6E;
+  --blue:#4AA8FF; --violet:#9B7BFF; --amber:#FFB74A;
+  --num:'Barlow Condensed',system-ui,sans-serif; --body:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);padding-bottom:48px}
+button{font-family:var(--body);cursor:pointer}
+.wrap{max-width:480px;margin:0 auto;padding:20px 16px 0}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+h1{margin:2px 0 0;font-family:var(--num);font-size:26px;font-weight:600}
+.chip{background:var(--cardsoft);border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:500}
+.chip.accent{border-color:rgba(47,230,167,.4);color:var(--green)}
+.banner{font-size:12px;border-radius:12px;padding:8px 12px;margin:10px 0;display:none}
+.banner.on{display:block}
+.banner.warn{color:var(--amber);background:rgba(255,183,74,.08);border:1px solid rgba(255,183,74,.2)}
+.banner.err{color:var(--red);background:rgba(255,90,110,.08);border:1px solid rgba(255,90,110,.2)}
+.banner.ok{color:var(--green);background:rgba(47,230,167,.08);border:1px solid rgba(47,230,167,.2)}
+.week{display:flex;gap:4px;margin:14px 0 18px}
+.daybtn{background:none;border:none;padding:6px 0;flex:1;display:flex;flex-direction:column;align-items:center;border-radius:12px;gap:1px}
+.daybtn.on{background:var(--cardsoft);outline:1px solid var(--line)}
+.daybtn .wd{font-size:10px;color:var(--faint);text-transform:uppercase}
+.daybtn .dn{font-family:var(--num);font-size:16px;font-weight:600;color:var(--dim)}
+.daybtn.on .dn{color:var(--text)}
+.daybtn .dot{width:6px;height:6px;border-radius:3px;margin-top:3px;background:var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px 18px;margin-top:12px}
+.card h3{margin:0 0 12px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.cardhead{display:flex;justify-content:space-between;align-items:baseline}
+.hero{display:flex;flex-direction:column;align-items:center;padding:24px 18px 20px}
+.ringwrap{position:relative}
+.ringcenter{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.bigval{font-family:var(--num);font-size:62px;font-weight:700;line-height:1}
+.biglabel{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:2px}
+.status{margin-top:12px;font-size:14px;font-weight:500}
+.minis{display:flex;gap:26px;margin-top:18px}
+.mini{display:flex;flex-direction:column;align-items:center;gap:6px}
+.mini .v{font-family:var(--num);font-size:24px;font-weight:600;color:var(--text)}
+.mini .l{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.mini .s{font-size:11px;color:var(--faint);margin-top:-4px}
+.stagebar{display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px}
+.stagebar div{transition:width .6s}
+.legend{display:flex;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:6px}
+.legend span{font-size:11px;color:var(--dim)}
+.legend b{color:var(--text)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:4px;margin-right:5px}
+.statrow{display:flex;gap:8px}
+.statrow+.statrow{margin-top:14px}
+.stat{flex:1;min-width:0}
+.stat .v{font-family:var(--num);font-size:26px;font-weight:600;line-height:1.05}
+.stat .u{font-size:13px;color:var(--faint);font-weight:500;margin-left:3px}
+.stat .l{font-size:11px;color:var(--dim);margin-top:2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chips .chip.on{color:var(--bg);border-color:transparent;font-weight:600}
+.chartbox{height:180px;position:relative}
+.avg{font-size:12px;color:var(--dim)}
+.avg b{font-family:var(--num);font-size:15px}
+footer{text-align:center;font-size:11px;color:var(--faint);margin-top:20px;padding:0 16px}
+.empty{font-size:13px;color:var(--faint)}
+svg circle.prog{transition:stroke-dashoffset .9s cubic-bezier(.4,0,.2,1),stroke .4s}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Garmin · Tagesübersicht</div>
+      <h1 id="dateTitle">–</h1>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="chip" id="fileBtn">CSV</button>
+      <button class="chip accent" id="reloadBtn">↻ Aktualisieren</button>
+    </div>
+    <input type="file" id="fileInput" accept=".csv,text/csv" style="display:none">
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="week" id="week"></div>
+
+  <section class="card hero">
+    <div class="ringwrap" id="heroRing"></div>
+    <div class="status" id="heroStatus"></div>
+    <div class="minis" id="minis"></div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><h3>Schlafphasen</h3><span id="sleepTotal" style="font-family:var(--num);font-size:18px;font-weight:600;color:var(--violet)"></span></div>
+    <div id="sleepBody"></div>
+  </section>
+
+  <section class="card">
+    <h3>Tageswerte</h3>
+    <div class="statrow">
+      <div class="stat"><div class="v" style="color:var(--amber)" id="vSteps">–</div><div class="l">Schritte</div></div>
+      <div class="stat"><div class="v" id="vCal">–<span class="u">kcal</span></div><div class="l">Kalorien</div></div>
+    </div>
+    <div class="statrow">
+      <div class="stat"><div class="v" style="color:var(--red)" id="vRhr">–<span class="u">bpm</span></div><div class="l">Ruhepuls</div></div>
+      <div class="stat"><div class="v" style="color:var(--blue)" id="vHrv">–<span class="u">ms</span></div><div class="l">HRV</div></div>
+      <div class="stat"><div class="v" style="color:var(--green)" id="vVo2">–</div><div class="l">VO₂max</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><h3 id="trendTitle">Trend</h3><span class="avg" id="trendAvg"></span></div>
+    <div class="chips" id="trendChips"></div>
+    <div class="chartbox"><canvas id="trendChart"></canvas></div>
+  </section>
+
+  <footer>Bereitschaft = Garmin Trainingsbereitschaft · ≥67 grün · 34–66 gelb · &lt;34 rot<br>Daten: nächtlicher Sync via GitHub Actions</footer>
+</div>
+
+<script>
+"use strict";
+/* ── Konfiguration ─────────────────────────────────────────────── */
+const CSV_SOURCES = [
+  "data/garmin.csv",  // relativ: gleiche GitHub-Pages-Site
+  "https://raw.githubusercontent.com/BrisingrsStudies/Garmin-Sync/main/data/garmin.csv",
+];
+
+const C = getComputedStyle(document.documentElement);
+const col = (n) => C.getPropertyValue(n).trim();
+const readyColor = (v) => v >= 67 ? col("--green") : v >= 34 ? col("--yellow") : col("--red");
+const readyLabel = (v) => v >= 67 ? "Bereit" : v >= 34 ? "Moderat" : "Erholung nötig";
+
+/* ── Parser (identisch zum Artifact) ───────────────────────────── */
+function num(v){let s=String(v??"").trim();if(!s)return null;
+  if(/,\d+$/.test(s))s=s.replace(/\./g,"").replace(",",".");
+  else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,"");
+  const n=parseFloat(s);return isNaN(n)?null:n}
+function dur(v){const s=String(v).trim();
+  const hm=s.match(/(\d+)\s*(?:h|Std)[^\d]*(\d+)?/i);if(hm)return +(+hm[1]+(+(hm[2]||0))/60).toFixed(1);
+  const c=s.match(/^(\d+):(\d+)/);if(c)return +(+c[1]+ +c[2]/60).toFixed(1);
+  return num(v)}
+function parseDate(v){const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return s.slice(0,10);
+  m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);if(m)return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  const d=new Date(s);return isNaN(d)?null:d.toISOString().slice(0,10)}
+
+const COLMAP=[
+  {key:"date",rx:/^(datum|date|kalendertag|calendar date)$/i,fn:parseDate},
+  {key:"steps",rx:/(schritte|steps)/i,fn:num},
+  {key:"calories",rx:/(kalorien|calories)/i,fn:num},
+  {key:"rhr",rx:/(ruheherzfrequenz|ruhe-hf|resting heart rate|restinghr)/i,fn:num},
+  {key:"hrv",rx:/(hrv|herzfrequenzvariabilit)/i,fn:num},
+  {key:"sleepScore",rx:/(schlafwert|schlaf-score|sleep score)/i,fn:num},
+  {key:"sleepH",rx:/(schlafdauer|schlafzeit|sleep duration|time asleep)/i,fn:dur},
+  {key:"readiness",rx:/(trainingsbereitschaft|readiness)/i,fn:num},
+  {key:"bbHigh",rx:/(body battery.*(max|höchst|high)|höchster wert)/i,fn:num},
+  {key:"bbLow",rx:/(body battery.*(min|niedrig|low)|niedrigster wert)/i,fn:num},
+  {key:"load",rx:/(trainingsbelastung|training load|belastung)/i,fn:num},
+  {key:"vo2max",rx:/vo2/i,fn:num},
+  {key:"stTief",rx:/^(tiefschlaf|deep)/i,fn:num},
+  {key:"stRem",rx:/^rem/i,fn:num},
+  {key:"stLeicht",rx:/^(leichtschlaf|light)/i,fn:num},
+  {key:"stWach",rx:/^(wach|awake)/i,fn:num},
+];
+
+/* ── State ─────────────────────────────────────────────────────── */
+let days=[],selIdx=0,trendKey="readiness",chart=null;
+const trendDefs={
+  readiness:{label:"Bereitschaft",color:col("--green")},
+  sleepScore:{label:"Schlaf",color:col("--violet")},
+  hrv:{label:"HRV",color:col("--blue"),unit:"ms"},
+  rhr:{label:"Ruhepuls",color:col("--red"),unit:"bpm"},
+  steps:{label:"Schritte",color:col("--amber")},
+  load:{label:"Belastung",color:col("--blue")},
+};
+
+/* ── Daten laden ───────────────────────────────────────────────── */
+function banner(kind,text){const b=document.getElementById("banner");
+  if(!kind){b.className="banner";return}
+  b.className="banner on "+kind;b.textContent=text}
+
+function ingest(rows,headers){
+  const mapping={};
+  for(const c of COLMAP){const h=headers.find(h=>c.rx.test(h));if(h)mapping[c.key]={header:h,fn:c.fn}}
+  if(!mapping.date){banner("err","Keine Datumsspalte in der CSV gefunden.");return false}
+  const byDate=new Map();
+  for(const row of rows){
+    const date=mapping.date.fn(row[mapping.date.header]);if(!date)continue;
+    const base=byDate.get(date)||{date,stages:null};
+    for(const[key,m]of Object.entries(mapping)){
+      if(key==="date")continue;
+      const v=m.fn(row[m.header]);if(v!=null)base[key]=v}
+    if(base.stTief!=null||base.stRem!=null||base.stLeicht!=null||base.stWach!=null){
+      base.stages={tief:base.stTief??0,rem:base.stRem??0,leicht:base.stLeicht??0,wach:base.stWach??0};
+      if(base.sleepH==null)base.sleepH=+(base.stages.tief+base.stages.rem+base.stages.leicht+base.stages.wach).toFixed(1)}
+    byDate.set(date,base)}
+  if(!byDate.size){banner("err","Keine gültigen Datenzeilen gefunden.");return false}
+  days=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+  selIdx=days.length-1;
+  return true}
+
+async function loadCsv(){
+  banner("warn","Lade Daten …");
+  for(const src of CSV_SOURCES){
+    try{
+      const r=await fetch(src+"?t="+Date.now(),{cache:"no-store"});
+      if(!r.ok)continue;
+      const text=await r.text();
+      const res=Papa.parse(text,{header:true,skipEmptyLines:true});
+      if(ingest(res.data,res.meta.fields||[])){
+        banner("ok",`${days.length} Tage geladen · Stand: ${days[days.length-1].date}`);
+        setTimeout(()=>banner(null),4000);
+        renderAll();return}
+    }catch(e){/* nächste Quelle probieren */}
+  }
+  banner("err","CSV konnte nicht geladen werden. Läuft der Sync-Workflow? Alternativ: CSV-Button oben.");
+}
+
+document.getElementById("reloadBtn").addEventListener("click",loadCsv);
+document.getElementById("fileBtn").addEventListener("click",()=>document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change",(e)=>{
+  const f=e.target.files?.[0];if(!f)return;
+  Papa.parse(f,{header:true,skipEmptyLines:true,complete:(res)=>{
+    if(ingest(res.data,res.meta.fields||[])){banner("ok",`${days.length} Tage importiert.`);setTimeout(()=>banner(null),4000);renderAll()}
+  }});
+  e.target.value=""});
+
+/* ── Rendering ─────────────────────────────────────────────────── */
+function ringSvg(value,size,stroke,color){
+  const r=(size-stroke)/2,circ=2*Math.PI*r,pct=Math.max(0,Math.min(1,(value??0)/100));
+  return `<svg width="${size}" height="${size}" style="transform:rotate(-90deg);display:block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${col('--line')}" stroke-width="${stroke}"/>
+    <circle class="prog" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+      stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${circ*(1-pct)}"
+      style="filter:drop-shadow(0 0 10px ${color}55)"/></svg>`}
+
+function fmtSleep(hf){if(hf==null)return"";const h=Math.floor(hf),m=Math.round((hf%1)*60);return `${h}h ${m}m`}
+
+function renderWeek(){
+  const el=document.getElementById("week");el.innerHTML="";
+  const week=days.slice(-7);
+  for(const d of week){
+    const idx=days.indexOf(d),on=idx===selIdx;
+    const wd=new Date(d.date+"T12:00").toLocaleDateString("de-DE",{weekday:"short"}).slice(0,2);
+    const b=document.createElement("button");
+    b.className="daybtn"+(on?" on":"");
+    b.innerHTML=`<span class="wd">${wd}</span><span class="dn">${+d.date.slice(8)}</span>
+      <span class="dot" style="background:${d.readiness!=null?readyColor(d.readiness):col('--line')}"></span>`;
+    b.addEventListener("click",()=>{selIdx=idx;renderAll()});
+    el.appendChild(b)}}
+
+function renderHero(){
+  const d=days[selIdx],rc=d.readiness!=null?readyColor(d.readiness):col("--faint");
+  document.getElementById("heroRing").innerHTML=ringSvg(d.readiness,190,13,rc)+
+    `<div class="ringcenter"><span class="bigval" style="color:${rc}">${d.readiness??"–"}</span>
+     <span class="biglabel">Bereitschaft</span></div>`;
+  const st=document.getElementById("heroStatus");
+  st.textContent=d.readiness!=null?readyLabel(d.readiness):"Keine Daten";
+  st.style.color=rc;
+  const minis=[
+    {v:d.sleepScore,c:col("--violet"),l:"Schlaf",s:fmtSleep(d.sleepH)},
+    {v:d.bbHigh,c:col("--amber"),l:"Body Battery",s:d.bbLow!=null?`Tief ${d.bbLow}`:""},
+    {v:d.load!=null?Math.min(100,d.load/250*100):null,c:col("--blue"),l:"Belastung",s:d.load!=null?String(Math.round(d.load)):"",raw:d.load},
+  ];
+  document.getElementById("minis").innerHTML=minis.map(m=>
+    `<div class="mini"><div class="ringwrap">${ringSvg(m.v,86,7,m.c)}
+      <div class="ringcenter"><span class="v">${m.raw!=null?Math.round(m.raw):(m.v!=null?Math.round(m.v):"–")}</span></div></div>
+      <span class="l">${m.l}</span>${m.s?`<span class="s">${m.s}</span>`:""}</div>`).join("")}
+
+function renderSleep(){
+  const d=days[selIdx];
+  document.getElementById("sleepTotal").textContent=d.sleepH!=null?`${d.sleepH} h`:"–";
+  const body=document.getElementById("sleepBody");
+  if(!d.stages||!d.sleepH){body.innerHTML=`<div class="empty">Für diesen Tag liegen keine Schlafphasen vor.</div>`;return}
+  const colors={tief:"#3D6BFF",rem:col("--violet"),leicht:"#6E7FA8",wach:col("--faint")};
+  const order=["tief","rem","leicht","wach"];
+  body.innerHTML=`<div class="stagebar">${order.map(s=>
+      `<div style="width:${(d.stages[s]/d.sleepH)*100}%;background:${colors[s]}"></div>`).join("")}</div>
+    <div class="legend">${order.map(s=>
+      `<span><i style="background:${colors[s]}"></i>${s[0].toUpperCase()+s.slice(1)} <b>${d.stages[s]}h</b></span>`).join("")}</div>`}
+
+function renderStats(){
+  const d=days[selIdx];
+  document.getElementById("vSteps").textContent=d.steps!=null?d.steps.toLocaleString("de-DE"):"–";
+  document.getElementById("vCal").innerHTML=(d.calories!=null?Math.round(d.calories):"–")+'<span class="u">kcal</span>';
+  document.getElementById("vRhr").innerHTML=(d.rhr??"–")+'<span class="u">bpm</span>';
+  document.getElementById("vHrv").innerHTML=(d.hrv??"–")+'<span class="u">ms</span>';
+  document.getElementById("vVo2").textContent=d.vo2max??"–"}
+
+function renderTrend(){
+  const def=trendDefs[trendKey];
+  document.getElementById("trendTitle").textContent=`Trend · ${days.length} Tage`;
+  const last7=days.slice(-7).map(d=>d[trendKey]).filter(v=>v!=null);
+  const avg=last7.length?last7.reduce((a,b)=>a+b,0)/last7.length:null;
+  document.getElementById("trendAvg").innerHTML=avg!=null?
+    `Ø 7T <b style="color:${def.color}">${Math.round(avg).toLocaleString("de-DE")}${def.unit?" "+def.unit:""}</b>`:"";
+  document.getElementById("trendChips").innerHTML=Object.entries(trendDefs).map(([k,v])=>
+    `<button class="chip${k===trendKey?" on":""}" data-k="${k}" style="${k===trendKey?`background:${v.color}`:""}">${v.label}</button>`).join("");
+  document.querySelectorAll("#trendChips .chip").forEach(b=>
+    b.addEventListener("click",()=>{trendKey=b.dataset.k;renderTrend()}));
+  const labels=days.map(d=>d.date.slice(5).replace("-",".")),data=days.map(d=>d[trendKey]??null);
+  if(chart)chart.destroy();
+  const ctx=document.getElementById("trendChart").getContext("2d");
+  const grad=ctx.createLinearGradient(0,0,0,180);
+  grad.addColorStop(0,def.color+"59");grad.addColorStop(1,def.color+"00");
+  chart=new Chart(ctx,{type:"line",
+    data:{labels,datasets:[{data,borderColor:def.color,backgroundColor:grad,fill:true,
+      borderWidth:2.5,pointRadius:0,pointHitRadius:12,tension:.35,spanGaps:true}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{backgroundColor:col("--cardsoft"),borderColor:col("--line"),borderWidth:1,
+          titleColor:col("--dim"),bodyColor:def.color,displayColors:false,
+          callbacks:{label:(c)=>`${def.label}: ${c.parsed.y?.toLocaleString("de-DE")??"–"}${def.unit?" "+def.unit:""}`}}},
+      scales:{x:{ticks:{color:col("--faint"),font:{size:10},maxTicksLimit:6},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:col("--faint"),font:{size:10}},grid:{color:col("--line")},border:{display:false}}}}})}
+
+function renderAll(){
+  if(!days.length)return;
+  const d=days[selIdx];
+  document.getElementById("dateTitle").textContent=
+    new Date(d.date+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"});
+  renderWeek();renderHero();renderSleep();renderStats();renderTrend()}
+
+loadCsv();
+</script>
+</body>
+</html>
